@@ -134,6 +134,9 @@ void outargyz(double complex ***, double ***, MPI_File);
 double f(double, double);
 double filon_inner_integral(double, double, int, double);
 double double_integral(double, double, int, int, double, double);
+void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny, double kx, double ky, double *result);
+double local_oscillation_strength(double x, double y, double kx, double ky)
+void init_thread_local_state()
 
 extern double simpint(double, double *, long);
 extern void diff(double, double *, double *, long);

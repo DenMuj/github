@@ -1419,62 +1419,160 @@ void gencoef(void) {
 
 // Define the function f(x, y)
 inline double f(double x, double y) {
-   double x2y2=x*x*y*y;
-   return (1. - 2. * x2y2) / pow(1. + x2y2, 2.5);
+    double x2y2 = x*x*y*y;
+    return (1. - 2. * x2y2) / pow(1. + x2y2, 2.5);
 }
 
-// Filon-Type Quadrature for the inner integral (over y)
-inline double filon_inner_integral(double x, double c, int Ny, double ky) {
-   double h = c / (Ny - 1); // Step size
-   double sum_cos = 0.0;
-   int i;
-   #pragma omp parallel for reduction(+:sum_cos)
-   for (i = 0; i < Ny - 1; i++) {
-      double yi = i * h;
-      double yi1 = (i + 1) * h;
-      double ym = (yi + yi1) / 2.0; // Midpoint
+// Determine local oscillation strength to guide adaptive discretization
+inline double local_oscillation_strength(double x, double y, double kx, double ky) {
+    // Estimate local frequency based on wave number and coordinate values
+    double freq_x = kx / (x * x); // Higher frequency at smaller x values due to Bessel
+    double freq_y = ky;           // Constant in y direction
+    
+    // Also consider function variation
+    double delta = 1e-4;
+    double df_dx = (f(x+delta, y) - f(x, y)) / delta;
+    double df_dy = (f(x, y+delta) - f(x, y)) / delta;
+    
+    // Combine measures
+    return sqrt(freq_x*freq_x + freq_y*freq_y) + sqrt(df_dx*df_dx + df_dy*df_dy);
+}
 
-   // Function values at endpoints and midpoint
-      double fi = f(x, yi);
-      double fi1 = f(x, yi1);
-      double fm = f(x, ym);
+// Simple structure to track recursion depth per thread
+typedef struct {
+    int depth;
+} ThreadState;
 
-   // Contribution to the integral
-      sum_cos += (h / 6.0) * (
-         fi * cos(ky * yi) +
-         4 * fm * cos(ky * ym) +
-         fi1 * cos(ky * yi1)
-    );
-   }
+// Define thread-local variable
+static ThreadState thread_state;
+#pragma omp threadprivate(thread_state)
 
+// Filon-Type Quadrature for the inner integral (over y) with adaptive sampling
+double filon_inner_integral(double x, double c, int base_Ny, double ky) {
+    // Determine adaptive sampling based on x
+    int adaptive_Ny = base_Ny;
+    double oscil_strength = fabs(ky) + 10.0 / (1.0 + x*x); 
+    
+    // Increase sampling for higher oscillations
+    if (oscil_strength > 5.0) {
+        adaptive_Ny = (int)(base_Ny * (1.0 + log(oscil_strength/5.0) * 2.0));
+    }
+    
+    double h = c / (adaptive_Ny - 1); // Step size
+    double sum_cos = 0.0;
+
+    #pragma omp parallel for reduction(+:sum_cos) if(adaptive_Ny > 128)
+    for (int i = 0; i < adaptive_Ny - 1; i++) {
+        double yi = i * h;
+        double yi1 = (i + 1) * h;
+        double ym = (yi + yi1) / 2.0; // Midpoint
+
+        // Calculate function values directly
+        double fi = f(x, yi);
+        double fi1 = f(x, yi1);
+        double fm = f(x, ym);
+        
+        // Calculate cosine values directly
+        double cos_yi = cos(ky * yi);
+        double cos_yi1 = cos(ky * yi1);
+        double cos_ym = cos(ky * ym);
+
+        // Simpson's rule with cosine modulation
+        sum_cos += (h / 6.0) * (
+            fi * cos_yi +
+            4.0 * fm * cos_ym +
+            fi1 * cos_yi1
+        );
+    }
+    
     return sum_cos;
 }
 
-// Outer integral (over x)
-double double_integral(double b, double c, int Nx, int Ny, double kx, double ky) {
-    double h = b / (Nx - 1); // Step size for x
-    double integral = 0.0;
-    int i;
-    #pragma omp parallel for reduction(+:integral)
-    for (i = 0; i < Nx - 1; i++) {
-        double xi = 1e-16+i * h;
-        double xi1 = (i + 1) * h;
-        double xm = (xi + xi1) / 2.0; // Midpoint
+// Initialize thread-local state
+void init_thread_local_state() {
+    thread_state.depth = 0;
+}
 
-        // Evaluate Bessel function J_0
+// Adaptive subdivision for a segment based on oscillation strength
+void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny, 
+                                 double kx, double ky, double *result) {
+    double xm = (xi + xi1) / 2.0;
+    
+    // Calculate oscillation strength at endpoints and midpoint
+    double osc_i = local_oscillation_strength(xi, c/2.0, kx, ky);
+    double osc_i1 = local_oscillation_strength(xi1, c/2.0, kx, ky);
+    double osc_m = local_oscillation_strength(xm, c/2.0, kx, ky);
+    
+    // Threshold for subdivision - adjust based on problem characteristics
+    double oscil_threshold = 10.0;
+    double h = xi1 - xi;
+    
+    // Maximum recursion depth to prevent infinite subdivision
+    if (thread_state.depth > 12) {
+        // Fall back to Simpson's rule if max depth reached
         double Ji = j0(kx / xi);
         double Ji1 = j0(kx / xi1);
         double Jm = j0(kx / xm);
-
-        // Compute inner integrals (over y) for each x point
-        double fi = filon_inner_integral(xi, c, Ny, ky) * Ji;
-        double fi1 = filon_inner_integral(xi1, c, Ny, ky) * Ji1;
-        double fm = filon_inner_integral(xm, c, Ny, ky) * Jm;
         
-        // Combine using Simpson's rule
-        integral += (h / 6.0) * (fi + 4 * fm + fi1);
+        double fi = filon_inner_integral(xi, c, base_Ny, ky) * Ji;
+        double fi1 = filon_inner_integral(xi1, c, base_Ny, ky) * Ji1;
+        double fm = filon_inner_integral(xm, c, base_Ny, ky) * Jm;
+        
+        *result += (h / 6.0) * (fi + 4.0 * fm + fi1);
+        return;
     }
+    
+    // Decide whether to subdivide based on oscillation strength
+    if ((osc_i > oscil_threshold || osc_i1 > oscil_threshold || osc_m > oscil_threshold) && h > 1e-6) {
+        /thread_state.depth++;
+        // Recursively subdivide
+        adaptive_segment_integration(xi, xm, c, base_Ny, kx, ky, result);
+        adaptive_segment_integration(xm, xi1, c, base_Ny, kx, ky, result);
+        thread_state.depth--;
+    } else {
+        // Use Simpson's rule for smooth enough segments
+        double Ji = j0(kx / xi);
+        double Ji1 = j0(kx / xi1);
+        double Jm = j0(kx / xm);
+        
+        double fi = filon_inner_integral(xi, c, base_Ny, ky) * Ji;
+        double fi1 = filon_inner_integral(xi1, c, base_Ny, ky) * Ji1;
+        double fm = filon_inner_integral(xm, c, base_Ny, ky) * Jm;
+        
+        *result += (h / 6.0) * (fi + 4.0 * fm + fi1);
+    }
+}
 
+// Outer integral (over x) with adaptive discretization
+double double_integral(double b, double c, int base_Nx, int base_Ny, double kx, double ky) {
+    double integral = 0.0;
+    double eps = 1e-8; // Small offset to avoid division by zero
+    
+    // Divide domain into initial segments
+    int num_segments = 8; // Start with a small number of segments
+    double h_initial = b / num_segments;
+    
+    #pragma omp parallel
+    {
+        init_thread_local_state();
+        
+        double local_integral = 0.0;
+        
+        #pragma omp for nowait
+        for (int i = 0; i < num_segments; i++) {
+            double xi = eps + i * h_initial;
+            double xi1 = eps + (i + 1) * h_initial;
+            
+            // Apply adaptive integration to each segment
+            adaptive_segment_integration(xi, xi1, c, base_Ny, kx, ky, &local_integral);
+        }
+        
+        #pragma omp critical
+        {
+            integral += local_integral;
+        }
+    }
+    
     return integral;
 }
 
@@ -1561,7 +1659,11 @@ void initpotdd(double *kx, double *ky, double *kz, double *kx2, double *ky2, dou
          }
       }
    }
-
+   // Clean up workspaces
+    for (int i = 0; i < num_threads; i++) {
+        destroy_integration_workspace(workspaces[i]);
+    }
+    free(workspaces);
    if (rank == 0) {
       potdd[0][0][0] = 0.;
    }
