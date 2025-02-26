@@ -24,7 +24,7 @@
  *  * regarding the use of the programs.
  */
 
-#include "imre3d-ms-ddiX-rot-mpi-qf-grad-muend-self-K3-Nad-Vx-cylcut-sigma-proba.h"
+#include "imre3d-ms-ddiX-rot-mpi-qf-grad-muend-self-K3-Nad-Vx-cylcut-sigma-proba-adaptive-filon.h"
 
 int main(int argc, char **argv) {
    // Nested parallelism is globally disabled at the start
@@ -1460,9 +1460,9 @@ double filon_inner_integral(double x, double c, int base_Ny, double ky) {
     
     double h = c / (adaptive_Ny - 1); // Step size
     double sum_cos = 0.0;
-
+   int i;
     #pragma omp parallel for reduction(+:sum_cos) if(adaptive_Ny > 128)
-    for (int i = 0; i < adaptive_Ny - 1; i++) {
+    for (i = 0; i < adaptive_Ny - 1; i++) {
         double yi = i * h;
         double yi1 = (i + 1) * h;
         double ym = (yi + yi1) / 2.0; // Midpoint
@@ -1524,7 +1524,7 @@ void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny,
     
     // Decide whether to subdivide based on oscillation strength
     if ((osc_i > oscil_threshold || osc_i1 > oscil_threshold || osc_m > oscil_threshold) && h > 1e-6) {
-        /thread_state.depth++;
+        thread_state.depth++;
         // Recursively subdivide
         adaptive_segment_integration(xi, xm, c, base_Ny, kx, ky, result);
         adaptive_segment_integration(xm, xi1, c, base_Ny, kx, ky, result);
@@ -1557,9 +1557,9 @@ double double_integral(double b, double c, int base_Nx, int base_Ny, double kx, 
         init_thread_local_state();
         
         double local_integral = 0.0;
-        
+        int i;
         #pragma omp for nowait
-        for (int i = 0; i < num_segments; i++) {
+        for (i = 0; i < num_segments; i++) {
             double xi = eps + i * h_initial;
             double xi1 = eps + (i + 1) * h_initial;
             
@@ -1659,11 +1659,6 @@ void initpotdd(double *kx, double *ky, double *kz, double *kx2, double *ky2, dou
          }
       }
    }
-   // Clean up workspaces
-    for (int i = 0; i < num_threads; i++) {
-        destroy_integration_workspace(workspaces[i]);
-    }
-    free(workspaces);
    if (rank == 0) {
       potdd[0][0][0] = 0.;
    }
