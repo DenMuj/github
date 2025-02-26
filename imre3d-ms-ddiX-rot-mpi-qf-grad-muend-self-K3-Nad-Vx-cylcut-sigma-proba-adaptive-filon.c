@@ -1417,31 +1417,7 @@ void gencoef(void) {
    return;
 }
 
-// Define the function f(x, y)
-inline double f(double x, double y) {
-    double x2y2 = x*x*y*y;
-    return (1. - 2. * x2y2) / pow(1. + x2y2, 2.5);
-}
 
-// Determine local oscillation strength to guide adaptive discretization
-inline double local_oscillation_strength(double x, double y, double kx, double ky) {
-    // Estimate local frequency based on wave number and coordinate values
-    double freq_x = kx / (x * x); // Higher frequency at smaller x values due to Bessel
-    double freq_y = ky;           // Constant in y direction
-    
-    // Also consider function variation
-    double delta = 1e-4;
-    double df_dx = (f(x+delta, y) - f(x, y)) / delta;
-    double df_dy = (f(x, y+delta) - f(x, y)) / delta;
-    
-    // Combine measures
-    return sqrt(freq_x*freq_x + freq_y*freq_y) + sqrt(df_dx*df_dx + df_dy*df_dy);
-}
-
-// Simple structure to track recursion depth per thread
-typedef struct {
-    int depth;
-} ThreadState;
 
 // Define thread-local variable
 static ThreadState thread_state;
