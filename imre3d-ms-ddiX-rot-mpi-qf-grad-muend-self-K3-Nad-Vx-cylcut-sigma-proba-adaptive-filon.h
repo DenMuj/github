@@ -95,6 +95,8 @@ double complex **ctmpyz;
 fftw_plan plan_forward, plan_backward, plan_forward0, plan_backward0;
 fftw_plan plan_transpose_x, plan_transpose_y, plan_transpose_dpsi, plan_transpose_Gpsi;
 
+
+
 void readpar(void);
 void initpsi(double complex ***);
 void initpot(void);
