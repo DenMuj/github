@@ -85,6 +85,7 @@ double *x2, *y2, *z2;
 double ***pot;
 double ***potdd;
 double **cutmem1, *cutmem2, **cutpotdd;
+double *moj_cutpotdd;
 
 double complex Ax0, Ay0, Az0, Ax0r, Ay0r, Az0r, Ax, Ay, Az;
 double complex *calphax, **calphay, **calphaz;
