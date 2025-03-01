@@ -1417,28 +1417,44 @@ void gencoef(void) {
    return;
 }
 
+// Define the function f(x, y)
+static inline double f(double x, double y) {
+    double x2y2 = x*x*y*y;
+    return (1. - 2. * x2y2) / pow(1. + x2y2, 2.5);
+}
 
-
-// Define thread-local variable
-static ThreadState thread_state;
-#pragma omp threadprivate(thread_state)
+// Determine local oscillation strength to guide adaptive discretization
+static inline double local_oscillation_strength(double x, double y, double kx, double ky) {
+    // Estimate local frequency based on wave number and coordinate values
+    double freq_x = kx / (x * x); // Higher frequency at smaller x values due to Bessel
+    double freq_y = ky;           // Constant in y direction
+    
+    // Also consider function variation
+    // double delta = 1e-4;
+    // double df_dx = (f(x+delta, y) - f(x, y)) / delta;
+    // double df_dy = (f(x, y+delta) - f(x, y)) / delta;
+    
+    // // Combine measures
+    // return sqrt(freq_x*freq_x + freq_y*freq_y) + sqrt(df_dx*df_dx + df_dy*df_dy);
+    return sqrt(freq_x*freq_x + freq_y*freq_y);
+}
 
 // Filon-Type Quadrature for the inner integral (over y) with adaptive sampling
 double filon_inner_integral(double x, double c, int base_Ny, double ky) {
     // Determine adaptive sampling based on x
-    int adaptive_Ny = base_Ny;
-    double oscil_strength = fabs(ky) + 10.0 / (1.0 + x*x); 
+    int adaptive_Ny = base_Ny/2;
+    double oscil_strength = fabs(ky) + 5.0 / (1.0 + x*x); 
     
     // Increase sampling for higher oscillations
-    if (oscil_strength > 5.0) {
-        adaptive_Ny = (int)(base_Ny * (1.0 + log(oscil_strength/5.0) * 2.0));
+    if (oscil_strength > 10.0) {
+        adaptive_Ny = (int)(adaptive_Ny * (1.0 + log(oscil_strength/5.0)));
     }
     
     double h = c / (adaptive_Ny - 1); // Step size
     double sum_cos = 0.0;
-   int i;
+
     #pragma omp parallel for reduction(+:sum_cos) if(adaptive_Ny > 128)
-    for (i = 0; i < adaptive_Ny - 1; i++) {
+    for (int i = 0; i < adaptive_Ny - 1; i++) {
         double yi = i * h;
         double yi1 = (i + 1) * h;
         double ym = (yi + yi1) / 2.0; // Midpoint
@@ -1464,14 +1480,10 @@ double filon_inner_integral(double x, double c, int base_Ny, double ky) {
     return sum_cos;
 }
 
-// Initialize thread-local state
-void init_thread_local_state() {
-    thread_state.depth = 0;
-}
-
 // Adaptive subdivision for a segment based on oscillation strength
+// Modified to take depth as a parameter instead of using thread-local state
 void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny, 
-                                 double kx, double ky, double *result) {
+                                 double kx, double ky, double *result, int depth) {
     double xm = (xi + xi1) / 2.0;
     
     // Calculate oscillation strength at endpoints and midpoint
@@ -1484,7 +1496,7 @@ void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny,
     double h = xi1 - xi;
     
     // Maximum recursion depth to prevent infinite subdivision
-    if (thread_state.depth > 12) {
+    if (depth > 12) {
         // Fall back to Simpson's rule if max depth reached
         double Ji = j0(kx / xi);
         double Ji1 = j0(kx / xi1);
@@ -1500,11 +1512,9 @@ void adaptive_segment_integration(double xi, double xi1, double c, int base_Ny,
     
     // Decide whether to subdivide based on oscillation strength
     if ((osc_i > oscil_threshold || osc_i1 > oscil_threshold || osc_m > oscil_threshold) && h > 1e-6) {
-        thread_state.depth++;
-        // Recursively subdivide
-        adaptive_segment_integration(xi, xm, c, base_Ny, kx, ky, result);
-        adaptive_segment_integration(xm, xi1, c, base_Ny, kx, ky, result);
-        thread_state.depth--;
+        // Recursively subdivide with incremented depth
+        adaptive_segment_integration(xi, xm, c, base_Ny, kx, ky, result, depth + 1);
+        adaptive_segment_integration(xm, xi1, c, base_Ny, kx, ky, result, depth + 1);
     } else {
         // Use Simpson's rule for smooth enough segments
         double Ji = j0(kx / xi);
@@ -1530,17 +1540,15 @@ double double_integral(double b, double c, int base_Nx, int base_Ny, double kx, 
     
     #pragma omp parallel
     {
-        init_thread_local_state();
-        
         double local_integral = 0.0;
-        int i;
+        
         #pragma omp for nowait
-        for (i = 0; i < num_segments; i++) {
+        for (int i = 0; i < num_segments; i++) {
             double xi = eps + i * h_initial;
             double xi1 = eps + (i + 1) * h_initial;
             
-            // Apply adaptive integration to each segment
-            adaptive_segment_integration(xi, xi1, c, base_Ny, kx, ky, &local_integral);
+            // Apply adaptive integration to each segment with initial depth 0
+            adaptive_segment_integration(xi, xi1, c, base_Ny, kx, ky, &local_integral, 0);
         }
         
         #pragma omp critical
@@ -1596,8 +1604,27 @@ void initpotdd(double *kx, double *ky, double *kz, double *kx2, double *ky2, dou
      //   }
    //  }
 // // //   if(rank == 0) fclose(cutout);
+      double rcut=1.0/Rcut;
+    #pragma omp parallel for collapse(2) schedule(dynamic,8) default(none) \
+         shared(moj_cutpotdd, kx, ky, kz, kx2, ky2, kz2, rcut, Lcut, Nx, localNy, Nz, Ny, offsetNy) private(cn     ti, cntj, cntk, krho)
+     for (cntj = 0; cntj < localNy; cntj++) {
+         for (cnti = 0; cnti < Nx; cnti++) {
+             for (cntk = 0; cntk < Nz; cntk++) {
+                 // Use the precomputed squares to calculate krho
+                 // Note: using ky2[cntj] for local indexing and kz2[cntk] for global
+                 double krho = sqrt(ky2[cntj] + kz2[cntk]);
+ 
+                 // Compute the function value
+                 double val = double_integral(rcut, Lcut, 1*Ny, 1*Nx, krho, kx[cnti]);
+ 
+                 // Store in the flattened 3D array
+                 int index = cnti * (localNy * Nz) + cntj * Nz + cntk;
+                 moj_cutpotdd[index] = val;
+             }
+         }
+     }
    
-   #pragma omp parallel for private(cnti, cntj, cntk, krho, cntrho, ctheta, stheta)
+   #pragma omp parallel for collapse(2) schedule(dynamic,8) private(cnti, cntj, cntk, krho, cntrho, ctheta, stheta)
    //#pragma omp parallel for private(cnti, cntj, cntk, xk,tmp)
    for (cntj = 0; cntj < localNy; cntj ++) {
       for (cnti = 0; cnti < Nx; cnti ++) {
@@ -1619,7 +1646,9 @@ void initpotdd(double *kx, double *ky, double *kz, double *kx2, double *ky2, dou
              
             //Filon integral
            double rcut = 1/Rcut;  
-            potdd[cntj][cnti][cntk] = 4. * pi * ((3. * ctheta * ctheta - 1.) / 3. + exp(- Lcut * krho) * (stheta * stheta * cos(Lcut * kx[cnti]) - stheta * ctheta * sin(Lcut * kx[cnti])) - double_integral(rcut,Lcut,1*Ny,1*Nx,krho,kx[cnti]));
+           long index=cnti * (localNy * Nz) + cntj * Nz + cntk;
+           potdd[cntj][cnti][cntk] = 4. * pi * ((3. * ctheta * ctheta - 1.) / 3. + exp(- Lcut * krho) * (sthe     ta * stheta * cos(Lcut * kx[cnti]) - stheta * ctheta * sin(Lcut * kx[cnti])) - moj_cutpotdd[index]);
+            //potdd[cntj][cnti][cntk] = 4. * pi * ((3. * ctheta * ctheta - 1.) / 3. + exp(- Lcut * krho) * (stheta * stheta * cos(Lcut * kx[cnti]) - stheta * ctheta * sin(Lcut * kx[cnti])) - double_integral(rcut,Lcut,1*Ny,1*Nx,krho,kx[cnti]));
 
             //Sferni cutoff
 	      //   xk = sqrt(kz2[cntk] + kx2[cnti] + ky2[cntj]);  
