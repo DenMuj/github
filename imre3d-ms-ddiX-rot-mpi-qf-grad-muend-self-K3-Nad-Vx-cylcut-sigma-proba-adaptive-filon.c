@@ -273,6 +273,7 @@ int main(int argc, char **argv) {
    cutmem1 = alloc_double_matrix(cLfact * Nx, cRfact * Ny);
    cutmem2 = alloc_double_vector(cLfact * Nx);
    cutpotdd = alloc_double_matrix(Nx, Ny + 1);
+   moj_cutpotdd = alloc_double_vector(Nx * localNy * Nz);
    psi = alloc_complex_tensor(localNx, Ny, Nz);
    psi_t = alloc_complex_tensor(Nx, localNy, Nz);
    psidd2 = alloc_double_tensor(localNx, Ny, 2 * (Nz2 + 1));
@@ -877,6 +878,7 @@ int main(int argc, char **argv) {
    free_double_matrix(cutmem1);
    free_double_vector(cutmem2);
    free_double_matrix(cutpotdd);
+   free_double_vector(moj_cutpotdd);
    free_complex_tensor(psi);
    free_complex_tensor(psi_t);
    free_double_tensor(psidd2);
@@ -1452,9 +1454,9 @@ double filon_inner_integral(double x, double c, int base_Ny, double ky) {
     
     double h = c / (adaptive_Ny - 1); // Step size
     double sum_cos = 0.0;
-
+   int i;
     #pragma omp parallel for reduction(+:sum_cos) if(adaptive_Ny > 128)
-    for (int i = 0; i < adaptive_Ny - 1; i++) {
+    for (i = 0; i < adaptive_Ny - 1; i++) {
         double yi = i * h;
         double yi1 = (i + 1) * h;
         double ym = (yi + yi1) / 2.0; // Midpoint
@@ -1541,9 +1543,9 @@ double double_integral(double b, double c, int base_Nx, int base_Ny, double kx, 
     #pragma omp parallel
     {
         double local_integral = 0.0;
-        
+        int i;
         #pragma omp for nowait
-        for (int i = 0; i < num_segments; i++) {
+        for (i = 0; i < num_segments; i++) {
             double xi = eps + i * h_initial;
             double xi1 = eps + (i + 1) * h_initial;
             
