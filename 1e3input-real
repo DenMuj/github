@@ -113,6 +113,8 @@
 #  Type: double   
    RM = 1e-3
 
+   R0 = 3.77789786566 
+
 #  Gamma coefficient of anisotropy of the trap.
 #  Required: yes
 #  Type: double
