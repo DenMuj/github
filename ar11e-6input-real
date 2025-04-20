@@ -116,7 +116,7 @@
    X0 = 3.77789786566
    Y0 = 3.77628260379e-01
    Z0 = 3.77628260379e-01
-   ax = 0.0036275
+   ax = 1
    ar = 1
 
 #  Gamma coefficient of anisotropy of the trap.
