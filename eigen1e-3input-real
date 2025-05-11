@@ -91,17 +91,17 @@
 #  Spatial discretization step in the x-direction.
 #  Required: yes
 #  Type: double
-   DX = 5.903029968344e-01
+   #DX = 5.903029968344e-01
 
 #  Spatial discretization step in the y-direction.
 #  Required: yes
 #  Type: double
-   DY = 5.900287647281e-02
+   #DY = 5.900287647281e-02
 
 #  Spatial discretization step in the z-direction.
 #  Required: yes
 #  Type: double
-   DZ = 5.900287647281e-02
+  # DZ = 5.900287647281e-02
 
 #  Time discretization step DT*DX*DX.
 #  Required: yes
