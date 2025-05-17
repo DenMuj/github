@@ -111,7 +111,7 @@
 #  Random multiplier for noise in initial wave function
 #  Required: no
 #  Type: double   
-   RM = 1e-3
+   RM = 1e-1
 
    X0 = 2.85839653941e+00
    Y0 = 2.25794392758e-01
