@@ -111,7 +111,12 @@
 #  Random multiplier for noise in initial wave function
 #  Required: no
 #  Type: double   
-   RM = 2e-2
+   RM = 5e-2
+
+#  Faraday freqyency
+#  Required: no
+#  Type: double
+   FF = 5
 
    X0 = 2.85839653941e+00
    Y0 = 2.25794392758e-01
