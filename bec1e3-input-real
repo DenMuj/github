@@ -117,7 +117,7 @@
 #  Type: double
    RM = 1e-3
 
-   FF = 200
+   FF = 1.246
 
 #  Gamma coefficient of anisotropy of the trap.
 #  Required: yes
